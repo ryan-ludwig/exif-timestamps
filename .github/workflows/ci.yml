@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# `vp install` runs `vp config`, which installs the commit hooks. CI has no use
+# for them, and they'd otherwise fire on the rebuild commit below
+env:
+  VITE_GIT_HOOKS: 0
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # setup-vp installs Vite+, Node, and the package manager in one step, so
+      # no separate setup-node or cache configuration is needed
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: "24"
+          cache: true
+
+      - run: vp install
+      - run: vp check
+
+  # `npx https://github.com/...` installs whatever is on main, so the bundle
+  # committed there has to match src/. Rebuilding here rather than relying on
+  # the person pushing to remember means it cannot drift.
+  dist:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: "24"
+          cache: true
+
+      - run: vp install
+      - run: vp run build
+
+      - name: Commit dist/ if the build changed it
+        run: |
+          # --porcelain rather than `git diff`, which ignores untracked files
+          # and would miss the build emitting a file that isn't committed yet
+          if [ -z "$(git status --porcelain -- dist)" ]; then
+            echo "dist/ already matches src/, nothing to commit"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist
+          git commit -m "chore: rebuild dist"
+
+          # HEAD:main rather than a bare push, so this works whether or not
+          # checkout left us on a detached HEAD. Pushes authenticated with
+          # GITHUB_TOKEN don't start another workflow run, so there's no loop
+          git push origin HEAD:main

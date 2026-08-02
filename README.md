@@ -34,7 +34,7 @@ npx https://github.com/ryan-ludwig/exif-timestamps --include mov,avi
 ```
 
 This is not published to npm — npx installs it straight from GitHub, so the
-full URL is the package name. Add `#<tag-or-branch>` to pin a specific version.
+full URL is the package name.
 
 ### Options
 
@@ -44,7 +44,6 @@ full URL is the package name. Add `#<tag-or-branch>` to pin a specific version.
 | `-o, --out <file>`      | `timestamps.csv`  | CSV file to write               |
 | `-i, --include <exts>`  | every file        | Only read these file extensions |
 | `-h, --help`            |                   | Show help                       |
-| `-v, --version`         |                   | Show the version number         |
 
 Dotfiles, anything inside a dot-directory, and `node_modules` are skipped, as
 are files with no capture date.
@@ -56,26 +55,8 @@ to narrow that to a list of extensions — pulling just the video out of a card
 dump, for instance:
 
 ```sh
-# Comma-separated
 exif-timestamps --include mov,avi,mp4
-
-# Or repeat the flag — these are equivalent
-exif-timestamps --include mov --include avi --include mp4
-
-# And the two can be mixed
-exif-timestamps -i mov,avi -i mp4
 ```
-
-Matching is case-insensitive and the leading dot is optional, so `--include
-mov`, `-i .MOV`, and `-i .mov` all pick up `CLIP0042.MOV`. Extensions are taken
-literally, with no aliasing — `--include mpeg` does **not** match `.mpg`, so
-list both if you need both.
-
-Two things worth knowing:
-
-- Files with no extension at all never match a filter.
-- `--include` narrows what's left after the dotfile and `node_modules` rules,
-  so `-i mov` still won't reach into a dot-directory.
 
 If nothing matches, the run says so and writes an empty CSV rather than
 failing:
@@ -135,4 +116,57 @@ Rows written:    12
 Skipped:         0 (0 with no capture date, 0 with errors)
 Filtered out:    3 (dotfiles, dot-directories, node_modules)
 Included:        mov, avi
+```
+
+## Development
+
+The source is TypeScript under `src/`, bundled to `dist/index.js`. The toolchain
+is [Vite+](https://viteplus.dev/guide/), which wraps the formatter, linter, type
+checker, and bundler behind a single `vp` command.
+
+### Setup
+
+```sh
+vp install
+```
+
+Use `vp install` rather than `npm install`. `package.json` pins npm 12.0.2
+through `devEngines`, and `vp` fetches that version for you — plain `npm`
+stops with an `EBADDEVENGINES` error instead.
+
+### Build
+
+```sh
+vp run build
+```
+
+Note `vp run build`, not `vp build`. Built-in commands and scripts share a
+namespace: `vp build` is the built-in Vite app build, while `vp run build` is
+this project's script, which wraps `vp pack` (tsdown).
+
+**`dist/` is committed to the repo on purpose.** npx installs this straight
+from GitHub, and a git install never runs `prepublishOnly` — so if the bundle
+isn't checked in, `npx https://github.com/...` has nothing to run.
+
+You don't have to remember to rebuild before committing. CI rebuilds `dist/` on
+every push to `main` and commits the result if it changed, so what npx installs
+always matches `src/`. Building locally is for trying your changes, not for
+keeping the repo correct — though committing `dist/` yourself is harmless, and
+just means CI finds nothing to do.
+
+### Checks
+
+```sh
+vp check        # format, lint, and type-check
+vp check --fix  # and fix whatever can be fixed automatically
+```
+
+CI runs `vp check` on every push and pull request. A commit hook runs it over
+staged files, so most problems surface before they reach CI.
+
+### Running your working copy
+
+```sh
+vp run build
+node dist/index.js --dir ~/Pictures/2026 --out trip.csv
 ```

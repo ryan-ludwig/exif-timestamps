@@ -24,9 +24,6 @@
     // bundle time and nothing is emitted from here
     "allowImportingTsExtensions": true,
 
-    // --version reads the version straight out of package.json
-    "resolveJsonModule": true,
-
     // `vp check` type-checks; `vp pack` is what actually emits
     "noEmit": true,
     "skipLibCheck": true

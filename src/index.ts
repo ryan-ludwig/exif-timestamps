@@ -4,7 +4,6 @@ import type { Tags } from "exiftool-vendored";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import pkg from "../package.json" with { type: "json" };
 import {
   errorMessage,
   isIgnoredPath,
@@ -26,7 +25,6 @@ Options:
                          Repeatable, case-insensitive, leading dot optional
                          (default: every file)
   -h, --help             Show this help
-  -v, --version          Show the version number
 
 Examples:
   exif-timestamps --include jpg,cr2,heic
@@ -75,7 +73,6 @@ function parseCommandLine(argv: string[]) {
         // different thing from an empty list
         include: { type: "string", short: "i", multiple: true },
         help: { type: "boolean", short: "h", default: false },
-        version: { type: "boolean", short: "v", default: false },
       },
     });
   } catch (error) {
@@ -309,16 +306,10 @@ async function writeRunLog({
 
 const { values } = parseCommandLine(process.argv);
 
-// Both bail before exiftool spins up its child process, so there's nothing
-// to shut down on the way out
+// Bails before exiftool spins up its child process, so there's nothing to
+// shut down on the way out
 if (values.help) {
   console.log(USAGE);
-  process.exit(0);
-}
-
-if (values.version) {
-  // Inlined at build time, so --version can't fail on a missing package.json
-  console.log(pkg.version);
   process.exit(0);
 }
 

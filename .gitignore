@@ -1,7 +1,8 @@
 node_modules/
 
-# Build output from `vp pack`
-dist/
+# dist/ is deliberately committed. The README installs this straight from
+# GitHub, and a git install never runs prepublishOnly — so the bundle has to be
+# in the repo or `npx https://github.com/...` has nothing to run.
 
 # This tool writes its output as CSV into whatever directory it's run from, so
 # a stray timestamps.csv from a test run is generated data, not source

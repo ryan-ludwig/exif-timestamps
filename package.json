@@ -14,7 +14,7 @@
   "license": "ISC",
   "author": "Ryan Ludwig <ryan.m.ludwig@gmail.com>",
   "bin": {
-    "exif-timestamps": "dist/index.mjs"
+    "exif-timestamps": "dist/index.js"
   },
   "files": [
     "dist"
@@ -22,7 +22,7 @@
   "type": "module",
   "scripts": {
     "build": "vp pack",
-    "start": "node dist/index.mjs",
+    "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prepare": "vp config",
     "prepublishOnly": "vp run build"
