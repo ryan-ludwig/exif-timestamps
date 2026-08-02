@@ -5,6 +5,14 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import {
+  errorMessage,
+  isIgnoredPath,
+  normalizeExtension,
+  replaceExtension,
+  toCsv,
+  toSingleLine,
+} from "./utils.js";
 
 const USAGE = `Usage: exif-timestamps [options]
 
@@ -45,23 +53,6 @@ const IGNORED_DIRECTORIES = new Set(["node_modules"]);
  * @property {TimestampRow[]} rows Files that had a capture date
  * @property {SkippedFile[]} skipped Files exiftool saw but that produced no row
  */
-
-/**
- * @param {unknown} error
- * @returns {string}
- */
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-// exiftool's messages can span several lines; the log keeps one line per file
-/**
- * @param {string} text
- * @returns {string}
- */
-function toSingleLine(text) {
-  return text.replace(/\s+/g, " ").trim();
-}
 
 /**
  * @param {string[]} argv
@@ -118,7 +109,7 @@ function parseIncludedExtensions(include) {
 
   const extensions = include
     .flatMap((value) => value.split(","))
-    .map((extension) => extension.trim().toLowerCase().replace(/^\./, ""))
+    .map(normalizeExtension)
     .filter((extension) => extension.length > 0);
 
   // Only reachable via something like `--include ""` or `--include ,`, which
@@ -130,20 +121,6 @@ function parseIncludedExtensions(include) {
   }
 
   return [...new Set(extensions)];
-}
-
-// Dotfiles like .DS_Store, anything inside a dot-directory, and the ignore
-// list above all get dropped
-/**
- * @param {string} relativePath
- * @returns {boolean}
- */
-function isIgnored(relativePath) {
-  return relativePath
-    .split(path.sep)
-    .some(
-      (segment) => segment.startsWith(".") || IGNORED_DIRECTORIES.has(segment),
-    );
 }
 
 // Returns the ignored count alongside the files so the log can account for the
@@ -162,7 +139,8 @@ async function readAllFilesRecursively(dirPath, includedExtensions) {
     .filter((entry) => entry.isFile())
     .map((entry) => path.resolve(entry.parentPath, entry.name));
   const candidates = allFiles.filter(
-    (fullPath) => !isIgnored(path.relative(dirPath, fullPath)),
+    (fullPath) =>
+      !isIgnoredPath(path.relative(dirPath, fullPath), IGNORED_DIRECTORIES),
   );
 
   // A file with no extension has an empty extname, so it never matches a
@@ -170,7 +148,7 @@ async function readAllFilesRecursively(dirPath, includedExtensions) {
   const extensions = includedExtensions && new Set(includedExtensions);
   const files = extensions
     ? candidates.filter((fullPath) =>
-        extensions.has(path.extname(fullPath).toLowerCase().replace(/^\./, "")),
+        extensions.has(normalizeExtension(path.extname(fullPath))),
       )
     : candidates;
 
@@ -273,30 +251,7 @@ async function getExifTimestampsFromFiles(files, baseDirectory) {
  * @returns {Promise<string>} Absolute path of the file that was written
  */
 async function writeResultsToCsv(results, csvPath = "timestamps.csv") {
-  // Quote a value only when it would otherwise break the row, and escape any
-  // quotes inside it by doubling them
-  /**
-   * @param {unknown} value
-   * @returns {string}
-   */
-  const escapeCsvValue = (value) => {
-    const stringValue = String(value ?? "");
-
-    if (/[",\r\n]/.test(stringValue)) {
-      return `"${stringValue.replaceAll('"', '""')}"`;
-    }
-
-    return stringValue;
-  };
-
-  /** @type {(keyof TimestampRow)[]} */
-  const header = ["path", "timestamp"];
-
-  const rows = results.map((result) =>
-    header.map((column) => escapeCsvValue(result[column])).join(","),
-  );
-
-  const csv = [header.join(","), ...rows].join("\n") + "\n";
+  const csv = toCsv(["path", "timestamp"], results);
 
   // Relative paths resolve against the directory the script was run from
   const fullPath = path.resolve(csvPath);
@@ -357,10 +312,7 @@ async function writeRunLog({
 
   // The log sits next to the CSV under the same name, so `--out trip.csv`
   // produces `trip.log`
-  const fullPath = path.join(
-    path.dirname(csvPath),
-    `${path.basename(csvPath, path.extname(csvPath))}.log`,
-  );
+  const fullPath = replaceExtension(csvPath, ".log");
   await fs.writeFile(fullPath, lines.join("\n") + "\n", "utf8");
 
   return fullPath;

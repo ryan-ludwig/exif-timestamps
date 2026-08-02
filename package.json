@@ -18,7 +18,8 @@
     "exif-timestamps": "index.js"
   },
   "files": [
-    "index.js"
+    "index.js",
+    "utils.js"
   ],
   "engines": {
     "node": ">=22"
