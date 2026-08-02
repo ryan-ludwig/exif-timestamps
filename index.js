@@ -14,8 +14,15 @@ writes the results to a CSV.
 Options:
   -d, --dir <directory>  Directory to scan (default: current directory)
   -o, --out <file>       CSV file to write (default: timestamps.csv)
+  -i, --include <exts>   Only read these file extensions, comma-separated.
+                         Repeatable, case-insensitive, leading dot optional
+                         (default: every file)
   -h, --help             Show this help
-  -v, --version          Show the version number`;
+  -v, --version          Show the version number
+
+Examples:
+  exif-timestamps --include jpg,cr2,heic
+  exif-timestamps -i jpg -i .CR2`;
 
 // Directories that are never worth handing to exiftool
 const IGNORED_DIRECTORIES = new Set(["node_modules"]);
@@ -66,6 +73,9 @@ function parseCommandLine(argv) {
       options: {
         dir: { type: "string", short: "d", default: process.cwd() },
         out: { type: "string", short: "o", default: "timestamps.csv" },
+        // No default: an absent --include means "every extension", which is a
+        // different thing from an empty list
+        include: { type: "string", short: "i", multiple: true },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", short: "v", default: false },
       },
@@ -94,6 +104,34 @@ async function resolveInputDirectory(dir) {
   return fullPath;
 }
 
+// `--include JPG,.cr2 -i heic` becomes ["jpg", "cr2", "heic"], so the list can
+// be compared against path.extname() output directly. Returns null when the
+// flag was never passed, which means every extension is welcome
+/**
+ * @param {string[] | undefined} include Raw --include values, one per flag
+ * @returns {string[] | null}
+ */
+function parseIncludedExtensions(include) {
+  if (!include) {
+    return null;
+  }
+
+  const extensions = include
+    .flatMap((value) => value.split(","))
+    .map((extension) => extension.trim().toLowerCase().replace(/^\./, ""))
+    .filter((extension) => extension.length > 0);
+
+  // Only reachable via something like `--include ""` or `--include ,`, which
+  // is a typo rather than a request to scan nothing
+  if (extensions.length === 0) {
+    console.error("--include needs at least one file extension");
+    console.error(USAGE);
+    process.exit(1);
+  }
+
+  return [...new Set(extensions)];
+}
+
 // Dotfiles like .DS_Store, anything inside a dot-directory, and the ignore
 // list above all get dropped
 /**
@@ -108,13 +146,14 @@ function isIgnored(relativePath) {
     );
 }
 
-// Returns the ignored count alongside the files so the log can account for
-// every file the walk saw, without listing each one
+// Returns the ignored count alongside the files so the log can account for the
+// files the walk dropped on its own, without listing each one
 /**
  * @param {string} dirPath
+ * @param {string[] | null} includedExtensions Normalized, or null for all
  * @returns {Promise<{ files: string[], ignoredCount: number }>}
  */
-async function readAllFilesRecursively(dirPath) {
+async function readAllFilesRecursively(dirPath, includedExtensions) {
   const entries = await fs.readdir(dirPath, {
     recursive: true,
     withFileTypes: true,
@@ -122,11 +161,20 @@ async function readAllFilesRecursively(dirPath) {
   const allFiles = entries
     .filter((entry) => entry.isFile())
     .map((entry) => path.resolve(entry.parentPath, entry.name));
-  const files = allFiles.filter(
+  const candidates = allFiles.filter(
     (fullPath) => !isIgnored(path.relative(dirPath, fullPath)),
   );
 
-  return { files, ignoredCount: allFiles.length - files.length };
+  // A file with no extension has an empty extname, so it never matches a
+  // filter — which is the right call, since there's nothing to match on
+  const extensions = includedExtensions && new Set(includedExtensions);
+  const files = extensions
+    ? candidates.filter((fullPath) =>
+        extensions.has(path.extname(fullPath).toLowerCase().replace(/^\./, "")),
+      )
+    : candidates;
+
+  return { files, ignoredCount: allFiles.length - candidates.length };
 }
 
 /**
@@ -263,6 +311,7 @@ async function writeResultsToCsv(results, csvPath = "timestamps.csv") {
  * @param {string} summary.csvPath Absolute path of the CSV that was written
  * @param {number} summary.scannedCount Files handed to exiftool
  * @param {number} summary.ignoredCount Files dropped before exiftool saw them
+ * @param {string[] | null} summary.includedExtensions Normalized, or null for all
  * @param {TimestampRow[]} summary.rows
  * @param {SkippedFile[]} summary.skipped
  * @returns {Promise<string>} Absolute path of the file that was written
@@ -272,6 +321,7 @@ async function writeRunLog({
   csvPath,
   scannedCount,
   ignoredCount,
+  includedExtensions,
   rows,
   skipped,
 }) {
@@ -291,6 +341,12 @@ async function writeRunLog({
     `Skipped:         ${skipped.length} (${noCaptureDate} with no capture date, ${errors} with errors)`,
     `Filtered out:    ${ignoredCount} (dotfiles, dot-directories, ${[...IGNORED_DIRECTORIES].join(", ")})`,
   ];
+
+  // Only meaningful when a filter was actually passed. The count of files that
+  // made it through is already up there as "Files read"
+  if (includedExtensions) {
+    lines.push(`Included:        ${includedExtensions.join(", ")}`);
+  }
 
   if (skipped.length > 0) {
     lines.push("", "Skipped files");
@@ -327,8 +383,19 @@ if (values.version) {
   process.exit(0);
 }
 
+const includedExtensions = parseIncludedExtensions(values.include);
 const inputDirectory = await resolveInputDirectory(values.dir);
-const { files, ignoredCount } = await readAllFilesRecursively(inputDirectory);
+const { files, ignoredCount } = await readAllFilesRecursively(
+  inputDirectory,
+  includedExtensions,
+);
+
+// An empty run is usually a typo in the filter, so name it. The CSV still gets
+// written, for the same reason a directory of unreadable files still does
+if (includedExtensions && files.length === 0) {
+  console.warn(`No files matched --include: ${includedExtensions.join(", ")}`);
+}
+
 const { rows, skipped } = await getExifTimestampsFromFiles(
   files,
   inputDirectory,
@@ -346,6 +413,7 @@ try {
     csvPath,
     scannedCount: files.length,
     ignoredCount,
+    includedExtensions,
     rows,
     skipped,
   });
