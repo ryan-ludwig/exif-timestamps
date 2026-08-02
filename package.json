@@ -1,0 +1,36 @@
+{
+  "name": "exif-timestamps",
+  "version": "0.1.0",
+  "description": "Read EXIF capture timestamps from a directory of photos and write them to a CSV",
+  "keywords": [
+    "exif",
+    "csv",
+    "photos",
+    "metadata",
+    "timestamps",
+    "exiftool",
+    "cli"
+  ],
+  "license": "ISC",
+  "author": "Ryan Ludwig <ryan.m.ludwig@gmail.com>",
+  "type": "module",
+  "bin": {
+    "exif-timestamps": "index.js"
+  },
+  "files": [
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "exiftool-vendored": "^37.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2"
+  }
+}

@@ -1,0 +1,27 @@
+node_modules/
+
+# This tool writes its output as CSV into whatever directory it's run from, so
+# a stray timestamps.csv from a test run is generated data, not source
+*.csv
+
+# Tarballs left behind by `npm pack`
+*.tgz
+
+# npm/node noise
+npm-debug.log*
+.npm/
+*.tsbuildinfo
+
+# Credentials, should npm auth or anything else ever land here
+.env
+.env.*
+.npmrc
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.claude/
