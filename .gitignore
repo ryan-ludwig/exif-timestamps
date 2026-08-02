@@ -1,5 +1,8 @@
 node_modules/
 
+# Build output from `vp pack`
+dist/
+
 # This tool writes its output as CSV into whatever directory it's run from, so
 # a stray timestamps.csv from a test run is generated data, not source
 *.csv

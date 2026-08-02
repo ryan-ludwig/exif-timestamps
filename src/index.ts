@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// @ts-check
 import { exiftool } from "exiftool-vendored";
+import type { Tags } from "exiftool-vendored";
 import fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import pkg from "../package.json" with { type: "json" };
 import {
   errorMessage,
   isIgnoredPath,
@@ -12,7 +12,7 @@ import {
   replaceExtension,
   toCsv,
   toSingleLine,
-} from "./utils.js";
+} from "./utils.ts";
 
 const USAGE = `Usage: exif-timestamps [options]
 
@@ -35,29 +35,36 @@ Examples:
 // Directories that are never worth handing to exiftool
 const IGNORED_DIRECTORIES = new Set(["node_modules"]);
 
-/**
- * @typedef {object} TimestampRow
- * @property {string} path Path to the file, relative to the input directory
- * @property {string} timestamp The file's DateTimeOriginal, as written by the camera
- */
+// A type alias rather than an interface, so it carries the implicit index
+// signature toCsv's constraint needs
+type TimestampRow = {
+  // Path to the file, relative to the input directory
+  path: string;
+  // The file's DateTimeOriginal, as written by the camera
+  timestamp: string;
+};
 
-/**
- * @typedef {object} SkippedFile
- * @property {string} path Path to the file, relative to the input directory
- * @property {"no-capture-date" | "error"} kind Coarse bucket, for the log summary
- * @property {string} reason Human-readable detail for the log
- */
+interface SkippedFile {
+  // Path to the file, relative to the input directory
+  path: string;
+  // Coarse bucket, for the log summary
+  kind: "no-capture-date" | "error";
+  // Human-readable detail for the log
+  reason: string;
+}
 
-/**
- * @typedef {object} ScanResult
- * @property {TimestampRow[]} rows Files that had a capture date
- * @property {SkippedFile[]} skipped Files exiftool saw but that produced no row
- */
+interface ScanResult {
+  // Files that had a capture date
+  rows: TimestampRow[];
+  // Files exiftool saw but that produced no row
+  skipped: SkippedFile[];
+}
 
-/**
- * @param {string[]} argv
- */
-function parseCommandLine(argv) {
+// Every file yields exactly one of the two; the `never`s let a truthiness
+// check on either key narrow the pair apart below
+type FileOutcome = { row: TimestampRow; skipped?: never } | { row?: never; skipped: SkippedFile };
+
+function parseCommandLine(argv: string[]) {
   try {
     return parseArgs({
       args: argv.slice(2),
@@ -72,18 +79,14 @@ function parseCommandLine(argv) {
       },
     });
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(errorMessage(error));
     console.error(USAGE);
     process.exit(1);
   }
 }
 
 // Fail early on a bad --dir rather than letting readdir throw a bare ENOENT
-/**
- * @param {string} dir
- * @returns {Promise<string>}
- */
-async function resolveInputDirectory(dir) {
+async function resolveInputDirectory(dir: string): Promise<string> {
   const fullPath = path.resolve(dir);
   const stats = await fs.stat(fullPath).catch(() => null);
 
@@ -98,11 +101,10 @@ async function resolveInputDirectory(dir) {
 // `--include JPG,.cr2 -i heic` becomes ["jpg", "cr2", "heic"], so the list can
 // be compared against path.extname() output directly. Returns null when the
 // flag was never passed, which means every extension is welcome
-/**
- * @param {string[] | undefined} include Raw --include values, one per flag
- * @returns {string[] | null}
- */
-function parseIncludedExtensions(include) {
+function parseIncludedExtensions(
+  // Raw --include values, one per flag
+  include: string[] | undefined,
+): string[] | null {
   if (!include) {
     return null;
   }
@@ -125,12 +127,11 @@ function parseIncludedExtensions(include) {
 
 // Returns the ignored count alongside the files so the log can account for the
 // files the walk dropped on its own, without listing each one
-/**
- * @param {string} dirPath
- * @param {string[] | null} includedExtensions Normalized, or null for all
- * @returns {Promise<{ files: string[], ignoredCount: number }>}
- */
-async function readAllFilesRecursively(dirPath, includedExtensions) {
+async function readAllFilesRecursively(
+  dirPath: string,
+  // Normalized, or null for all
+  includedExtensions: string[] | null,
+): Promise<{ files: string[]; ignoredCount: number }> {
   const entries = await fs.readdir(dirPath, {
     recursive: true,
     withFileTypes: true,
@@ -139,39 +140,30 @@ async function readAllFilesRecursively(dirPath, includedExtensions) {
     .filter((entry) => entry.isFile())
     .map((entry) => path.resolve(entry.parentPath, entry.name));
   const candidates = allFiles.filter(
-    (fullPath) =>
-      !isIgnoredPath(path.relative(dirPath, fullPath), IGNORED_DIRECTORIES),
+    (fullPath) => !isIgnoredPath(path.relative(dirPath, fullPath), IGNORED_DIRECTORIES),
   );
 
   // A file with no extension has an empty extname, so it never matches a
   // filter — which is the right call, since there's nothing to match on
   const extensions = includedExtensions && new Set(includedExtensions);
   const files = extensions
-    ? candidates.filter((fullPath) =>
-        extensions.has(normalizeExtension(path.extname(fullPath))),
-      )
+    ? candidates.filter((fullPath) => extensions.has(normalizeExtension(path.extname(fullPath))))
     : candidates;
 
   return { files, ignoredCount: allFiles.length - candidates.length };
 }
 
-/**
- * @param {string[]} files
- * @param {string} baseDirectory
- * @returns {Promise<ScanResult>}
- */
-async function getExifTimestampsFromFiles(files, baseDirectory) {
-  // Every file yields exactly one of the two; the `never`s let a truthiness
-  // check on either key narrow the pair apart below
-  /** @type {({ row: TimestampRow, skipped?: never } | { row?: never, skipped: SkippedFile })[]} */
+async function getExifTimestampsFromFiles(
+  files: string[],
+  baseDirectory: string,
+): Promise<ScanResult> {
   const results = await Promise.all(
-    files.map(async (file) => {
+    files.map(async (file): Promise<FileOutcome> => {
       // Where the file sits inside the directory that was passed in, so
       // same-named files in different folders stay distinguishable
       const relativePath = path.relative(baseDirectory, file);
 
-      /** @type {import("exiftool-vendored").Tags} */
-      let tags;
+      let tags: Tags;
 
       try {
         tags = await exiftool.read(file);
@@ -179,7 +171,7 @@ async function getExifTimestampsFromFiles(files, baseDirectory) {
         return {
           skipped: {
             path: relativePath,
-            kind: /** @type {const} */ ("error"),
+            kind: "error",
             reason: `exiftool failed: ${toSingleLine(errorMessage(error))}`,
           },
         };
@@ -202,12 +194,12 @@ async function getExifTimestampsFromFiles(files, baseDirectory) {
             warnings.length > 0
               ? {
                   path: relativePath,
-                  kind: /** @type {const} */ ("error"),
+                  kind: "error",
                   reason: `no capture date (${toSingleLine(warnings.join("; "))})`,
                 }
               : {
                   path: relativePath,
-                  kind: /** @type {const} */ ("no-capture-date"),
+                  kind: "no-capture-date",
                   reason: "no capture date",
                 },
         };
@@ -228,9 +220,7 @@ async function getExifTimestampsFromFiles(files, baseDirectory) {
           timestamp:
             typeof DateTimeOriginal === "string"
               ? DateTimeOriginal
-              : (DateTimeOriginal.rawValue ??
-                DateTimeOriginal.toString() ??
-                ""),
+              : (DateTimeOriginal.rawValue ?? DateTimeOriginal.toString() ?? ""),
         },
       };
     }),
@@ -239,18 +229,15 @@ async function getExifTimestampsFromFiles(files, baseDirectory) {
   // Promise.all preserves input order, so both lists follow the walk order
   return {
     rows: results.flatMap((result) => (result.row ? [result.row] : [])),
-    skipped: results.flatMap((result) =>
-      result.skipped ? [result.skipped] : [],
-    ),
+    skipped: results.flatMap((result) => (result.skipped ? [result.skipped] : [])),
   };
 }
 
-/**
- * @param {TimestampRow[]} results
- * @param {string} [csvPath]
- * @returns {Promise<string>} Absolute path of the file that was written
- */
-async function writeResultsToCsv(results, csvPath = "timestamps.csv") {
+// Returns the absolute path of the file that was written
+async function writeResultsToCsv(
+  results: TimestampRow[],
+  csvPath: string = "timestamps.csv",
+): Promise<string> {
   const csv = toCsv(["path", "timestamp"], results);
 
   // Relative paths resolve against the directory the script was run from
@@ -260,17 +247,21 @@ async function writeResultsToCsv(results, csvPath = "timestamps.csv") {
   return fullPath;
 }
 
-/**
- * @param {object} summary
- * @param {string} summary.inputDirectory
- * @param {string} summary.csvPath Absolute path of the CSV that was written
- * @param {number} summary.scannedCount Files handed to exiftool
- * @param {number} summary.ignoredCount Files dropped before exiftool saw them
- * @param {string[] | null} summary.includedExtensions Normalized, or null for all
- * @param {TimestampRow[]} summary.rows
- * @param {SkippedFile[]} summary.skipped
- * @returns {Promise<string>} Absolute path of the file that was written
- */
+interface RunSummary {
+  inputDirectory: string;
+  // Absolute path of the CSV that was written
+  csvPath: string;
+  // Files handed to exiftool
+  scannedCount: number;
+  // Files dropped before exiftool saw them
+  ignoredCount: number;
+  // Normalized, or null for all
+  includedExtensions: string[] | null;
+  rows: TimestampRow[];
+  skipped: SkippedFile[];
+}
+
+// Returns the absolute path of the file that was written
 async function writeRunLog({
   inputDirectory,
   csvPath,
@@ -279,10 +270,8 @@ async function writeRunLog({
   includedExtensions,
   rows,
   skipped,
-}) {
-  const noCaptureDate = skipped.filter(
-    (file) => file.kind === "no-capture-date",
-  ).length;
+}: RunSummary): Promise<string> {
+  const noCaptureDate = skipped.filter((file) => file.kind === "no-capture-date").length;
   const errors = skipped.length - noCaptureDate;
 
   const lines = [
@@ -328,19 +317,14 @@ if (values.help) {
 }
 
 if (values.version) {
-  // Read lazily so a problem here can only ever break --version
-  /** @type {{ version: string }} */
-  const pkg = createRequire(import.meta.url)("./package.json");
+  // Inlined at build time, so --version can't fail on a missing package.json
   console.log(pkg.version);
   process.exit(0);
 }
 
 const includedExtensions = parseIncludedExtensions(values.include);
 const inputDirectory = await resolveInputDirectory(values.dir);
-const { files, ignoredCount } = await readAllFilesRecursively(
-  inputDirectory,
-  includedExtensions,
-);
+const { files, ignoredCount } = await readAllFilesRecursively(inputDirectory, includedExtensions);
 
 // An empty run is usually a typo in the filter, so name it. The CSV still gets
 // written, for the same reason a directory of unreadable files still does
@@ -348,10 +332,7 @@ if (includedExtensions && files.length === 0) {
   console.warn(`No files matched --include: ${includedExtensions.join(", ")}`);
 }
 
-const { rows, skipped } = await getExifTimestampsFromFiles(
-  files,
-  inputDirectory,
-);
+const { rows, skipped } = await getExifTimestampsFromFiles(files, inputDirectory);
 const csvPath = await writeResultsToCsv(rows, values.out);
 
 console.log(`Wrote ${rows.length} rows to ${csvPath}`);

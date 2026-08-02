@@ -3,35 +3,48 @@
   "version": "0.1.0",
   "description": "Read EXIF capture timestamps from a directory of photos and write them to a CSV",
   "keywords": [
-    "exif",
+    "cli",
     "csv",
-    "photos",
-    "metadata",
-    "timestamps",
+    "exif",
     "exiftool",
-    "cli"
+    "metadata",
+    "photos",
+    "timestamps"
   ],
   "license": "ISC",
   "author": "Ryan Ludwig <ryan.m.ludwig@gmail.com>",
-  "type": "module",
   "bin": {
-    "exif-timestamps": "index.js"
+    "exif-timestamps": "dist/index.mjs"
   },
   "files": [
-    "index.js",
-    "utils.js"
+    "dist"
   ],
-  "engines": {
-    "node": ">=22"
-  },
+  "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "vp pack",
+    "start": "node dist/index.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "vp config",
+    "prepublishOnly": "vp run build"
   },
   "dependencies": {
     "exiftool-vendored": "^37.1.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2"
+    "@types/node": "^26.1.2",
+    "vite-plus": "0.2.7"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.7"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "12.0.2",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

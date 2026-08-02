@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // tsdown transpiles rather than type-checks, so the source has to stay
+    // free of syntax that can't be erased outright
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    // Imports name the real file, e.g. "./utils.ts". tsdown resolves them at
+    // bundle time and nothing is emitted from here
+    "allowImportingTsExtensions": true,
+
+    // --version reads the version straight out of package.json
+    "resolveJsonModule": true,
+
+    // `vp check` type-checks; `vp pack` is what actually emits
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "vite.config.ts"]
+}
