@@ -52,3 +52,30 @@ path,timestamp
 `path` is relative to the scanned directory, so identically named files in
 different folders stay distinguishable. `timestamp` is the raw value as written
 by the camera, not normalized to a timezone.
+
+### Log
+
+Every run also writes a `.log` next to the CSV, under the same name — `--out
+trip.csv` produces `trip.log`. It records where the CSV went, how many rows
+were written, and one line per skipped file with the reason:
+
+```
+exif-timestamps run at 2026-04-12T18:03:41.221Z
+
+Scanned directory: /Users/you/Pictures/2026
+CSV written to:    /Users/you/trip.csv
+
+Files read:      5
+Rows written:    2
+Skipped:         3 (2 with no capture date, 1 with errors)
+Filtered out:    3 (dotfiles, dot-directories, node_modules)
+
+Skipped files
+  notes.txt — no capture date
+  2026-04-11/broken.JPG — no capture date
+  2026-04-11/locked.JPG — no capture date (Error opening file)
+```
+
+Filtered files are counted but not listed, since they never reach exiftool. A
+file that exiftool can't read is logged and skipped rather than failing the
+run, so the CSV still gets written.
